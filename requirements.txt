@@ -1,0 +1,14 @@
+numpy
+pandas
+tqdm
+plotly
+kaleido
+h5py
+scipy
+colormaps
+matplotlib
+phylib
+python-pptx
+opencv-python
+pyqt5
+jupyter
