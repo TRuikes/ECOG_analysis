@@ -19,6 +19,19 @@ class ProjectColors:
         return f'rgba({r}, {g}, {b}, {alpha})'
 
     @staticmethod
+    def led_amplitude_discrete(led_amp, alpha=1):
+
+        min_led_level = 0
+        max_led_level = 7
+
+        laser_level = int((led_amp - min_led_level) / (max_led_level - min_led_level) * 100)
+
+        # cmaps.cet_l_bmy.discrete(100).colors
+        r, g, b = cmaps.cet_l_bmy.cut(0.1, 'left').cut(0.1, 'right').discrete(100).colors[laser_level, :]
+        return f'rgba({r}, {g}, {b}, {alpha})'
+
+
+    @staticmethod
     def n_turns(n_turns, alpha=1):
 
         min_n_turns = 25
@@ -45,10 +58,10 @@ class ProjectColors:
     @staticmethod
     def burst_duration(bd, alpha=1):
         min_bd = 0
-        max_bd = 110
+        max_bd = 400
 
         idx = int((bd - min_bd) / (max_bd - min_bd) * 100)
-        r, g, b = cmaps.cet_l_bmy.cut(0.1, 'left').cut(0.1, 'right').discrete(100).colors[idx, :]
+        r, g, b = cmaps.torch.cut(0.2, 'left').cut(0.2, 'right').discrete(100).colors[idx, :]
         return f'rgba({r}, {g}, {b}, {alpha})'
 
 
@@ -70,6 +83,19 @@ class ProjectColors:
         return f'rgba({r}, {g}, {b}, {alpha})'
 
     @staticmethod
+    def increasing_value(val, alpha=1, min=None, max=None):
+        if min is None:
+            raise ValueError()
+        if max is None:
+            raise ValueError()
+        rel_i = int((val - min) / (max - min) * 100)
+        r, g, b = cmaps.torch.cut(0.2, 'left').cut(0.2, 'right').discrete(100).colors[rel_i, :]
+        return f'rgba({r}, {g}, {b}, {alpha})'
+
+
+
+
+    @staticmethod
     def min_max_map(val, min_val, max_val):
         rel_i = int((val - min_val) / (max_val - min_val) * 100)
         r, g, b = cmaps.cet_l_bmy.cut(0.1, 'left').cut(0.1, 'right').discrete(100).colors[rel_i, :]
@@ -78,4 +104,7 @@ class ProjectColors:
 
 if __name__ == '__main__':
     # p = ProjectColors()
-    cmaps.show_cmaps_all()
+    # cmaps.show_cmaps_all()
+
+    x = cmaps.show_cmaps()
+    x()

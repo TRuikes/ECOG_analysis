@@ -5,45 +5,10 @@ import allego_file_reader as afr
 import utils
 import numpy as np
 from project_colors import ProjectColors
-from scipy.signal import butter, iirnotch, filtfilt, lfilter
+from scipy.signal import butter, iirnotch, filtfilt, lfilter, sosfiltfilt
 
-
-figure_savedir = Path(r'E:\Axorus\in_vivo\250120-PEV_test\figures')
-
-
-def apply_filters(data, fs, ):
-    # Design 50 Hz notch filter
-    # f0 = 50  # Notch frequency
-    # Q = 30   # Quality factor
-    # b_notch, a_notch = iirnotch(f0, Q, fs)
-    #
-    # # Design 0.1-500 Hz bandpass filter
-    # lowcut = 0.01
-    # highcut = 3000
-    # b_band, a_band = butter(4, [lowcut / (0.5 * fs), highcut / (0.5 * fs)], btype='band')
-    lowcut = 0.01
-    highcut = 500
-    b, a = butter(4, [lowcut, highcut], fs=fs, btype='band')
-
-    # Apply filters to data
-    filtered_data = np.zeros_like(data)
-    for i in range(data.shape[0]):
-        raw_signal = data[i, :]
-        signal_bandpassed = lfilter(b, a, raw_signal)
-        # signal = filtfilt(b_notch, a_notch, data[i, :])  # Apply notch filter
-        # filtered_data[i, :] = filtfilt(b_band, a_band, signal)  # Apply bandpass filter
-
-        yref = np.mean(raw_signal[:5])
-
-        filtered_data[i, :] = raw_signal - yref
-        # filtered_data[i, :] = raw_signal
-
-    return data
-
-# Example usage:
-# data: n_signals x n_samples numpy array
-# fs: sampling frequency in Hz
-# filtered_data = apply_filters(data, fs)
+data_dir = Path(r'C:\axorus\250120-PEV_test')
+figure_savedir = Path(r'C:\axorus\250120-PEV_test\figures')
 
 
 def check_duration_unit(dunit):
@@ -317,7 +282,7 @@ def align_detected_burst_onset_with_stimulation_files(burst_df, data_dir, stimul
     return burst_df
 
 
-def plot_sequence(sequence_name, burst_df, channel_df, time_samples,
+def plot_sequence_all_channels(sequence_name, burst_df, channel_df, time_samples,
                   signals):
 
     sequence_df = burst_df.query('stim_sequence == @sequence_name')
@@ -393,7 +358,7 @@ def plot_sequence(sequence_name, burst_df, channel_df, time_samples,
     cmap = ProjectColors()
 
     fig = utils.make_figure(
-        width=1, height=1,
+        width=1.5, height=1.5,
         x_domains=x_domains,
         y_domains=y_domains,
     )
@@ -439,10 +404,17 @@ def plot_sequence(sequence_name, burst_df, channel_df, time_samples,
                             mode='lines', line=dict(color='red', width=1), showlegend=False,
                             **pos, )
 
-            # fig.update_yaxes(
-            #     range=[ymin, ymax],
-            #     **pos,
-            # )
+            fig.update_xaxes(
+                title_text=f'{i}',
+                **pos,
+            )
+
+    for row_i in range(n_rows):
+        for col_j in range(n_cols):
+            fig.update_yaxes(
+                range=[ymin, ymax],
+                row=row_i+1, col=col_j+1,
+            )
 
     utils.save_fig(fig, figure_savedir / burst_df.iloc[0].recording_name / sequence_name)
 
@@ -480,7 +452,6 @@ def get_recording_data(data_dir, rec_nr):
     recording_name = rec_names[rec_nr]
 
     signals, time_samples, channel_df = read_data_files(data_dir, rec_nr)
-    signals_filtered = apply_filters(signals, 3000)
     # signals_filtered = signals
     # plot_probe(channel_df)
 
@@ -496,18 +467,396 @@ def get_recording_data(data_dir, rec_nr):
 
     return channel_df, burst_df, time_samples, signals
 
+def plot_sequence_single_channel(sequence_name, burst_df, time_samples, signals,
+                                 channel_info):
+    sequence_df = burst_df.query('stim_sequence == @sequence_name')
+
+    assert sequence_df.shape[0] > 0
+
+    all_veps = {}
+    t_pre = 100
+    t_post = 300
+    for trial, btdf in sequence_df.groupby('train_nr'):
+
+        n_samples = (t_pre + t_post) * 3
+        n_bursts = btdf.shape[0]
+
+        vep = np.zeros((n_bursts, n_samples))
+        btick = 0
+        for burst_i, burst_info in btdf.iterrows():
+            burst_onset = burst_info.burst_onset
+            i0 = np.where(time_samples >= burst_onset - t_pre)[0][0]
+            idx = np.arange(i0, i0 + n_samples)
+
+            vep[btick,  :] = signals[int(channel_info.sys_chan_idx), idx]
+            btick += 1
+
+        if 'burst_duration' in sequence_name:
+            name = btdf.iloc[0].burst_duration
+        elif 'power' in sequence_name:
+            name = btdf.iloc[0].amplitude
+        elif 'frequency' in sequence_name:
+            name = btdf.iloc[0].frequency
+        else:
+            raise ValueError('')
+
+        all_veps[name] = vep
+
+    cmap = ProjectColors()
+
+    fig = utils.make_figure(
+        width=1, height=1,
+        x_domains={1: [[0.1, 0.9]]},
+        y_domains={1: [[0.1, 0.9]]},
+    )
+
+    ymin = None
+    ymax = None
+
+    stim_values = list(all_veps.keys())
+    stim_values = np.sort(stim_values)
+
+    for bd in stim_values:
+
+        data_burst = all_veps[bd]
+        mean_data_burst = np.mean(data_burst, axis=0)
+        y0 = np.min(mean_data_burst)
+        y1 = np.max(mean_data_burst)
+        dy = y1 - y0
+        ym = np.min(mean_data_burst) - 0.05 * dy
+        ymm = np.max(mean_data_burst) + 0.05 * dy
+
+        if ymin is None or ym < ymin:
+            ymin = ym
+        if ymax is None or ymm > ymax:
+            ymax = ymm
+
+        data = all_veps[bd]
+        x = np.arange(-t_pre, t_post, 1 / 3)
+        y = np.mean(data, axis=0)
+        y_se = np.std(data, axis=0) / np.sqrt(data.shape[0])
+
+        alpha = 0.2
+        if 'frequency' in sequence_name:
+            clr = cmap.burst_frequency(bd, 1)
+            clr_fill = cmap.burst_frequency(bd, alpha)
+            name = f'{bd:.0f} Hz'
+        elif 'burst_duration' in sequence_name:
+            clr = cmap.burst_duration(bd, 1)
+            clr_fill = cmap.burst_duration(bd, alpha)
+            name = f'{bd:.0f} ms'
+        elif 'power' in sequence_name:
+            clr = cmap.led_amplitude(bd, 1)
+            clr_fill = cmap.led_amplitude(bd, alpha)
+            name = f'A: {bd:.0f}'
+        else:
+            raise ValueError('')
+
+        fig.add_scatter(x=x, y=y-y_se, mode='lines', line=dict(color=clr, width=0),
+                        showlegend=False)
+        fig.add_scatter(x=x, y=y+y_se, mode='lines', line=dict(color=clr, width=0),
+                        fill='tonexty', fillcolor=clr_fill, showlegend=False)
+
+        fig.add_scatter(x=x, y=y, mode='lines', line=dict(color=clr, width=0.6),
+                        showlegend=True, name=name)
+
+        fig.add_scatter(x=[0, 0], y=[ymin, ymax],
+                        mode='lines', line=dict(color='red', width=1), showlegend=False,
+                        )
+
+    fig.update_layout(
+        legend=dict(
+            xanchor='right',
+            x=1,
+            yanchor='top',
+            y=1,
+            entrywidth=0.01,
+        )
+    )
+
+    fig.update_xaxes(
+        tickvals=np.arange(-200, 500, 100),
+        title_text='time [ms]',
+    )
+    fig.update_yaxes(
+        range=[ymin, ymax],
+        title_text='Amplitude [mV?]'
+    )
+
+    utils.save_fig(fig, figure_savedir / burst_df.iloc[0].recording_name /
+                   sequence_name / 'per_channel' / channel_info.name,
+                   display=False,)
+
+def get_stats(sequence_name, burst_df, channel_df,
+              time_samples, signals):
+
+
+    sequence_df = burst_df.query('stim_sequence == @sequence_name')
+
+    assert sequence_df.shape[0] > 0
+
+    stats = pd.DataFrame()
+    t_pre = 100
+    t_post = 300
+    stats_idx = 0
+
+
+    for trial, btdf in sequence_df.groupby('train_nr'):
+        print(f'\t\t{trial}')
+
+
+        n_samples = (t_pre + t_post) * 3
+        n_channel = signals.shape[0]
+        n_bursts = btdf.shape[0]
+        amplitudes = np.zeros((n_bursts, n_channel))
+        burst_tick = 0
+
+        for burst_i, burst_info in btdf.iterrows():
+            burst_onset = burst_info.burst_onset
+            i0 = np.where(time_samples >= burst_onset - t_pre)[0][0]
+            idx = np.arange(i0, i0 + n_samples)
+            time = time_samples[idx] - burst_onset
+            baseline_idx = np.where((time >= -10) & (time < 0))[0]
+            a_base = np.mean(signals[:, idx[baseline_idx]], axis=1)
+            stim_idx = np.where(time > 0)[0]
+            a_stim = np.max(signals[:, idx[stim_idx]], axis=1)
+            amplitudes[burst_tick, :] = a_stim - a_base
+            burst_tick += 1
+
+        if 'burst_duration' in sequence_name:
+            param_val = btdf.iloc[0].burst_duration
+        elif 'power' in sequence_name:
+            param_val = btdf.iloc[0].amplitude
+        elif 'frequency' in sequence_name:
+            param_val = btdf.iloc[0].frequency
+        else:
+            raise ValueError('')
+
+        for channel_name, channel_info in channel_df.iterrows():
+            stats.at[stats_idx, 'recording'] = btdf.iloc[0].recording_name
+            stats.at[stats_idx, 'sequence_name'] = sequence_name
+            stats.at[stats_idx, 'trial'] = trial
+            stats.at[stats_idx, 'channel_name'] = channel_name
+            stats.at[stats_idx, 'amplitude'] = np.mean(amplitudes[:, int(channel_info.sys_chan_idx)])
+            stats.at[stats_idx, 'amplitude_se'] = np.std(amplitudes[:, int(channel_info.sys_chan_idx)]) / np.sqrt(amplitudes.shape[0])
+            stats.at[stats_idx, 'stim_param_val'] = param_val
+
+            stats_idx += 1
+
+    return stats
+
+def plot_stats(stats):
+    power_calib_df = read_power_calibration(data_dir)
+    rec_names = stats.recording.unique()
+    stats['rec_nr'] = stats['recording'].apply(lambda x: np.where(rec_names == x)[0][0])
+
+    for rec_to_plot in range(len(rec_names)):
+        for seq_to_plot in stats.sequence_name.unique():
+
+            if 'power' in seq_to_plot:
+                x_title = 'Irradiance [mW/cm2]'
+
+            elif 'frequency' in seq_to_plot:
+                x_title = 'Frequency [Hz]'
+
+            elif 'duration' in seq_to_plot:
+                x_title = 'Duration [ms]'
+
+            df_to_plot = stats.query(f'rec_nr == {rec_to_plot} and sequence_name == "{seq_to_plot}"')
+
+            fig = utils.make_figure(
+                width=0.4,
+                height=1,
+                x_domains={1: [[0.15, 0.95]]},
+                y_domains={1: [[0.15, 0.95]]},
+            )
+            for ch_name, ch_df in df_to_plot.groupby('channel_name'):
+                if 'pri' not in ch_name:
+                    continue
+
+                x = ch_df.stim_param_val.values
+
+                y = ch_df.amplitude.values
+                idx = np.argsort(x)
+
+                if 'frequency' in seq_to_plot or 'duration' in seq_to_plot:
+                    xtext = x[idx]
+                elif 'power' in seq_to_plot:
+                    xtext = [f"{power_calib_df.loc[xx, 'mW/cm2']:.0f}" for xx in x[idx]]
+
+                fig.add_scatter(
+                    x=np.arange(y.size),
+                    y=y[idx],
+                    mode='lines', line=dict(color='black', width=1),
+                    showlegend=False,
+                )
+
+            fig.update_yaxes(
+                tickvals=np.arange(0, 1500, 100),
+                title_text='Amplitude'
+            )
+
+            fig.update_xaxes(
+                title_text=x_title,
+                ticktext=xtext,
+                tickvals=np.arange(x.size)
+            )
+            utils.save_fig(fig, figure_savedir / 'stats' / rec_names[rec_to_plot] / seq_to_plot,
+                           display=False,)
+
+
+def read_power_calibration(data_dir):
+    file = data_dir / r'power measurement LED 17 Jan 2025.xlsx'
+    df = pd.read_excel(file, engine='openpyxl',
+                       usecols=['Voltage', 'mW', 'mW/cm2'], index_col='Voltage')
+    return df
+
+
+def plot_individual_trials(sequence_name, burst_df, time_samples, signals,
+                                 channel_info):
+
+    sequence_df = burst_df.query('stim_sequence == @sequence_name')
+
+    assert sequence_df.shape[0] > 0
+
+    all_veps = {}
+    t_pre = 100
+    t_post = 300
+    for trial, btdf in sequence_df.groupby('train_nr'):
+
+        n_samples = (t_pre + t_post) * 3
+        n_bursts = btdf.shape[0]
+
+        vep = np.zeros((n_bursts, n_samples))
+        btick = 0
+        for burst_i, burst_info in btdf.iterrows():
+            burst_onset = burst_info.burst_onset
+            i0 = np.where(time_samples >= burst_onset - t_pre)[0][0]
+            idx = np.arange(i0, i0 + n_samples)
+
+            vep[btick,  :] = signals[int(channel_info.sys_chan_idx), idx]
+            btick += 1
+
+        if 'burst_duration' in sequence_name:
+            name = btdf.iloc[0].burst_duration
+        elif 'power' in sequence_name:
+            name = btdf.iloc[0].amplitude
+        elif 'frequency' in sequence_name:
+            name = btdf.iloc[0].frequency
+        else:
+            raise ValueError('')
+
+        all_veps[name] = vep
+
+    cmap = ProjectColors()
+
+
+
+    ymin = None
+    ymax = None
+
+    stim_values = list(all_veps.keys())
+    stim_values = np.sort(stim_values)
+
+    for bd in stim_values:
+        fig = utils.make_figure(
+            width=1, height=1,
+            x_domains={1: [[0.1, 0.9]]},
+            y_domains={1: [[0.1, 0.9]]},
+            subplot_titles={1: [f'{bd}']}
+        )
+
+        data_burst = all_veps[bd]
+        mean_data_burst = np.mean(data_burst, axis=0)
+        y0 = np.min(mean_data_burst)
+        y1 = np.max(mean_data_burst)
+        dy = y1 - y0
+        ym = np.min(mean_data_burst) - 0.05 * dy
+        ymm = np.max(mean_data_burst) + 0.05 * dy
+
+        if ymin is None or ym < ymin:
+            ymin = ym
+        if ymax is None or ymm > ymax:
+            ymax = ymm
+
+        data = all_veps[bd]
+        x_plot, y_plot = [], []
+        xvals = np.arange(-t_pre, t_post, 1/3)
+        base_idx = np.where((xvals >= -20) & (xvals < 10))[0]
+        for i in range(data.shape[0]):
+            x_plot.extend([xvals, None])
+            y_plot.extend([data[i, :] - np.mean(data[i, base_idx]), None])
+
+        x_plot = np.hstack(x_plot)
+        y_plot = np.hstack(y_plot)
+        # x = np.arange(-t_pre, t_post, 1 / 3)
+        # y = np.mean(data, axis=0)
+        # y_se = np.std(data, axis=0) / np.sqrt(data.shape[0])
+
+        alpha = 0.2
+        if 'frequency' in sequence_name:
+            clr = cmap.burst_frequency(bd, 1)
+            name = f'{bd:.0f} Hz'
+        elif 'burst_duration' in sequence_name:
+            clr = cmap.burst_duration(bd, 1)
+            name = f'{bd:.0f} ms'
+        elif 'power' in sequence_name:
+            clr = cmap.led_amplitude(bd, 1)
+            name = f'A: {bd:.0f}'
+        else:
+            raise ValueError('')
+
+        fig.add_scatter(x=x_plot, y=y_plot, mode='lines', line=dict(color=clr, width=0.4),
+                        showlegend=False, name=name)
+
+        fig.add_scatter(x=[0, 0], y=[ymin, ymax],
+                        mode='lines', line=dict(color='red', width=1), showlegend=False,
+                        )
+
+        fig.update_xaxes(
+            tickvals=np.arange(-200, 500, 100),
+            title_text='time [ms]',
+        )
+        fig.update_yaxes(
+            range=[-800, 800],
+            tickvals=np.arange(-1000, 1000, 200),
+            title_text='Amplitude [mV?]'
+        )
+
+        utils.save_fig(fig, figure_savedir / burst_df.iloc[0].recording_name /
+                       sequence_name / 'per_channel' / channel_info.name / f'{bd:.2f}',
+                       display=False,)
 
 def main():
 
-    data_dir = Path(r'E:\Axorus\in_vivo\250120-PEV_test')
+    all_stats = []
 
     for rec_nr in range(4):
         channel_df, burst_df, time_samples, signals = get_recording_data(data_dir, rec_nr)
+        sos = butter(4, (0.5, 500), btype='bandpass', analog=False, fs=3000,
+                     output='sos')
+
+        signals_filt = np.zeros_like(signals)
+        for i in range(signals_filt.shape[0]):
+            signals_filt[i, :] = sosfiltfilt(sos, signals[i, :])
 
         for sequence_name in burst_df.stim_sequence.unique():
-            plot_sequence(sequence_name, burst_df, channel_df, time_samples, signals)
+            # plot_sequence_all_channels(sequence_name, burst_df, channel_df, time_samples, signals)
 
-        # break
+            # joblist = []
+            # joblist2 = []
+            # for i, r in channel_df.iterrows():
+                plot_sequence_single_channel(sequence_name, burst_df, time_samples, signals, r)
+                # joblist.append([sequence_name, burst_df, time_samples, signals_filt, r])
+                # joblist2.append([sequence_name, burst_df, time_samples, signals_filt, r])
+            # utils.run_job(plot_sequence_single_channel, 4, joblist)
+            # utils.run_job(plot_individual_trials, 4, joblist2)
+            # print(rec_nr, sequence_name)
+            stats = get_stats(sequence_name, burst_df, channel_df, time_samples, signals_filt)
+            all_stats.append(stats)
+
+    all_stats = pd.concat(all_stats)
+    plot_stats(all_stats)
 
 
 if __name__ == '__main__':
