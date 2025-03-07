@@ -2,7 +2,7 @@ import pandas as pd
 from pathlib import Path
 
 # Parameters describing the date of the experiment
-EXPERIMENT_DATE = '17-02-2025'
+EXPERIMENT_DATE = '05-03-2025'
 # Parameter describing the export path for the stimulation files
 EXPORT_DIR = Path(rf'C:/axorus/stimfiles/{EXPERIMENT_DATE}')
 # Parameter to set the interval between stimulation sets
@@ -116,7 +116,9 @@ def create_file(filename, stim_params: pd.DataFrame):
 
 
 def add_power_sequence(stim_params: pd.DataFrame):
-    amplitudes = [0.1, 0.2, 0.5, 1, 1.5, 2, 3]  # V
+    # amplitudes = [0.1, 0.2, 0.5, 1, 1.5, 2, 3]  # V
+    amplitudes = [0.1, 0.2, 0.5, 1] # V
+
     duration = 50  # ms
     frequency = 1  # Hz
 
