@@ -10,6 +10,7 @@ INTER_STIM_INTERVAL = 5  # s
 # Parameter to set the number of times a stimulus should be repeated
 REPEATS = 50
 
+
 def get_binary_stim_code(value, stimulation_frequency, repeats):
 
     bit_code = format(value, '08b')  # Convert to 8-bit binary
@@ -32,7 +33,7 @@ def get_binary_stim_code(value, stimulation_frequency, repeats):
 
     for i in range(int(repeats)):
 
-        # Start the sequence with 10 ms high, 5 ms low
+        # Start the sequence with 1 ms high, 0.5 ms low
         stim_code += f'1\t{t_pre_high*1e3:.0f}\t0\t{t_pre_low*1e3:.0f}\t1\n'
 
         for b in bit_code:
@@ -45,14 +46,13 @@ def get_binary_stim_code(value, stimulation_frequency, repeats):
             elif b == '0':
                 stim_code += f'1\t{bit_low_length*1e3:.0f}\t0\t{bit_low_low_length*1e3:.0f}\t1\n'
 
-        # Finish the sequence with 10 ms high, 5 ms low
+        # Finish the sequence with 1 ms high, 0.5 ms low
         stim_code += f'1\t{t_pre_high*1e3:.0f}\t0\t{t_pre_low*1e3:.0f}\t1\n'
 
         # Add inter trial interval
         stim_code += f'0\t{post_seq_duration:.0f}\t0\t0\t1\n'
 
     return stim_code
-
 
 
 def create_file(filename, stim_params: pd.DataFrame):

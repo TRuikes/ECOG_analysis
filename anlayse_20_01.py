@@ -7,8 +7,8 @@ import numpy as np
 from project_colors import ProjectColors
 from scipy.signal import butter, iirnotch, filtfilt, lfilter, sosfiltfilt
 
-data_dir = Path(r'C:\axorus\250120-PEV_test')
-figure_savedir = Path(r'C:\axorus\250120-PEV_test\figures')
+data_dir = Path(r'E:\250120-PEV_test')
+figure_savedir = Path(r'E:\250120-PEV_test\figures')
 
 
 def check_duration_unit(dunit):
@@ -451,7 +451,8 @@ def get_recording_data(data_dir, rec_nr):
 
     recording_name = rec_names[rec_nr]
 
-    signals, time_samples, channel_df = read_data_files(data_dir, rec_nr)
+    signals, time_samples, channel_df = (read_data_files
+                                         (data_dir, rec_nr))
     # signals_filtered = signals
     # plot_probe(channel_df)
 
@@ -466,6 +467,7 @@ def get_recording_data(data_dir, rec_nr):
     burst_df = burst_df.query('TRIGGER_ALIGNED == True')
 
     return channel_df, burst_df, time_samples, signals
+
 
 def plot_sequence_single_channel(sequence_name, burst_df, time_samples, signals,
                                  channel_info):
@@ -488,7 +490,7 @@ def plot_sequence_single_channel(sequence_name, burst_df, time_samples, signals,
             i0 = np.where(time_samples >= burst_onset - t_pre)[0][0]
             idx = np.arange(i0, i0 + n_samples)
 
-            vep[btick,  :] = signals[int(channel_info.sys_chan_idx), idx]
+            vep[btick, :] = signals[int(channel_info.sys_chan_idx), idx]
             btick += 1
 
         if 'burst_duration' in sequence_name:
@@ -587,9 +589,9 @@ def plot_sequence_single_channel(sequence_name, burst_df, time_samples, signals,
                    sequence_name / 'per_channel' / channel_info.name,
                    display=False,)
 
+
 def get_stats(sequence_name, burst_df, channel_df,
               time_samples, signals):
-
 
     sequence_df = burst_df.query('stim_sequence == @sequence_name')
 
@@ -603,7 +605,6 @@ def get_stats(sequence_name, burst_df, channel_df,
 
     for trial, btdf in sequence_df.groupby('train_nr'):
         print(f'\t\t{trial}')
-
 
         n_samples = (t_pre + t_post) * 3
         n_channel = signals.shape[0]
@@ -644,6 +645,7 @@ def get_stats(sequence_name, burst_df, channel_df,
             stats_idx += 1
 
     return stats
+
 
 def plot_stats(stats):
     power_calib_df = read_power_calibration(data_dir)
@@ -734,7 +736,7 @@ def plot_individual_trials(sequence_name, burst_df, time_samples, signals,
             i0 = np.where(time_samples >= burst_onset - t_pre)[0][0]
             idx = np.arange(i0, i0 + n_samples)
 
-            vep[btick,  :] = signals[int(channel_info.sys_chan_idx), idx]
+            vep[btick, :] = signals[int(channel_info.sys_chan_idx), idx]
             btick += 1
 
         if 'burst_duration' in sequence_name:
@@ -749,8 +751,6 @@ def plot_individual_trials(sequence_name, burst_df, time_samples, signals,
         all_veps[name] = vep
 
     cmap = ProjectColors()
-
-
 
     ymin = None
     ymax = None
@@ -827,36 +827,130 @@ def plot_individual_trials(sequence_name, burst_df, time_samples, signals,
                        sequence_name / 'per_channel' / channel_info.name / f'{bd:.2f}',
                        display=False,)
 
+
+def plot_amplitude_per_burst_single_trial(sequence_name, burst_df, time_samples,
+                                          signals, channel_info):
+
+    sequence_df = burst_df.query('stim_sequence == @sequence_name')
+
+    assert sequence_df.shape[0] > 0
+
+    t_pre = 10
+    t_post = 100
+    for trial, btdf in sequence_df.groupby('train_nr'):
+        n_samples = (t_pre + t_post) * 3
+        n_bursts = btdf.shape[0]
+
+        burst_nr = np.zeros(n_bursts)
+        burst_amplitude = np.zeros(n_bursts)
+
+        btick = 0
+        for burst_i, burst_info in btdf.iterrows():
+            burst_onset = burst_info.burst_onset
+            i0 = np.where(time_samples >= burst_onset - t_pre)[0][0]
+            idx = np.arange(i0, i0 + n_samples)
+            time = time_samples[idx] - burst_onset
+            baseline_idx = np.where((time >= -10) & (time < 0))[0]
+            a_base = np.mean(signals[int(channel_info.sys_chan_idx), idx[baseline_idx]])
+            stim_idx = np.where(time > 0)[0]
+            a_stim = np.max(signals[int(channel_info.sys_chan_idx), idx[stim_idx]])
+
+            burst_nr[btick] = btick
+            burst_amplitude[btick] = a_stim - a_base
+            btick += 1
+
+        burst_amplitude[burst_amplitude > 800] = np.nan
+
+        fig = utils.make_figure(
+            width=0.4,
+            height=1,
+            x_domains={1: [[0.15, 0.95]]},
+            y_domains={1: [[0.15, 0.95]]},
+        )
+        fig.add_scatter(
+            x=burst_nr,
+            y=burst_amplitude,
+            mode='lines', line=dict(color='black', width=1),
+            showlegend=False,
+        )
+
+        fig.update_yaxes(
+            tickvals=np.arange(0, 1500, 100),
+            title_text='Amplitude'
+        )
+
+        if 'burst_duration' in sequence_name:
+            name = btdf.iloc[0].burst_duration
+        elif 'power' in sequence_name:
+            name = btdf.iloc[0].amplitude
+        elif 'frequency' in sequence_name:
+            name = btdf.iloc[0].frequency
+        else:
+            raise ValueError('')
+
+        utils.save_fig(fig, figure_savedir / 'amplitude_per_burst' / burst_df.iloc[0].recording_name /
+                       sequence_name / 'per_channel' / channel_info.name / f'{name:.2f}',
+                       display=False, )
+
+
 def main():
+    # Create a bandpass filter
+    sos = butter(10, (5, 500), btype='bandpass', analog=False, fs=3000,
+                 output='sos')
 
     all_stats = []
 
+    # Load data per recording
     for rec_nr in range(4):
-        channel_df, burst_df, time_samples, signals = get_recording_data(data_dir, rec_nr)
-        sos = butter(4, (0.5, 500), btype='bandpass', analog=False, fs=3000,
-                     output='sos')
 
+        # Extract recording data
+        channel_df, burst_df, time_samples, signals = get_recording_data(data_dir, rec_nr)
+
+        # Filter the ECOG signals
         signals_filt = np.zeros_like(signals)
+        signals_filt2 = np.zeros_like(signals)
         for i in range(signals_filt.shape[0]):
             signals_filt[i, :] = sosfiltfilt(sos, signals[i, :])
+            signals_filt2[i, :] = sosfiltfilt(sos2, signals_filt[i, :])
 
+        # For each stimulation sequence create a joblist
         for sequence_name in burst_df.stim_sequence.unique():
+            print(sequence_name)
+            if 'power' not in sequence_name:
+                continue
             # plot_sequence_all_channels(sequence_name, burst_df, channel_df, time_samples, signals)
 
-            # joblist = []
-            # joblist2 = []
-            # for i, r in channel_df.iterrows():
-                plot_sequence_single_channel(sequence_name, burst_df, time_samples, signals, r)
-                # joblist.append([sequence_name, burst_df, time_samples, signals_filt, r])
-                # joblist2.append([sequence_name, burst_df, time_samples, signals_filt, r])
+            joblist = []
+            joblist2 = []
+            for i, r in channel_df.iterrows():
+                # plot_sequence_single_channel(sequence_name, burst_df, time_samples, signals, r)
+                joblist.append([sequence_name, burst_df, time_samples, signals_filt, r])
+                joblist2.append([sequence_name, burst_df, time_samples, signals_filt, r])
+
+            test_job = ['led_power', burst_df, time_samples, signals_filt, channel_df.loc['pri_10']]
+
+            # plot_sequence_single_channel(*test_job)
+            plot_individual_trials(*test_job)
+            plot_amplitude_per_burst_single_trial(*test_job)
+
+            test_job = ['led_power', burst_df, time_samples, signals_filt2, channel_df.loc['pri_10']]
+            plot_sequence_single_channel(*test_job)
+
+
             # utils.run_job(plot_sequence_single_channel, 4, joblist)
             # utils.run_job(plot_individual_trials, 4, joblist2)
-            # print(rec_nr, sequence_name)
-            stats = get_stats(sequence_name, burst_df, channel_df, time_samples, signals_filt)
-            all_stats.append(stats)
 
-    all_stats = pd.concat(all_stats)
-    plot_stats(all_stats)
+            # run job that generates amplitude per burst nr figs
+            # utils.run_job(plot_amplitude_per_burst_single_trial, 8, joblist)
+
+            # print(rec_nr, sequence_name)
+            # stats = get_stats(sequence_name, burst_df, channel_df, time_samples, signals_filt)
+            # all_stats.append(stats)
+
+        break
+
+    # all_stats = pd.concat(all_stats)
+    # plot_stats(all_stats)
 
 
 if __name__ == '__main__':
